@@ -1,8 +1,6 @@
 import '#fastify/trace-init/trace-init'; // leave an empty line next so this doesn't get sorted from the first line
 
-import { readFileSync } from 'fs';
-import { AgentLLMs, agentContext, llms } from '#agent/agentContext';
-import { Agent } from '#agent/agentFunctions';
+import { AgentLLMs } from '#agent/agentContextTypes';
 import { RunAgentConfig } from '#agent/agentRunner';
 import { runAgentWorkflow } from '#agent/agentWorkflowRunner';
 import { shutdownTrace } from '#fastify/trace-init/trace-init';
@@ -11,7 +9,7 @@ import { ClaudeLLMs } from '#llm/models/anthropic';
 import { ClaudeVertexLLMs } from '#llm/models/anthropic-vertex';
 import { CodeEditingAgent } from '#swe/codeEditingAgent';
 import { initFirestoreApplicationContext } from '../app';
-import { CliOptions, getLastRunAgentId, parseProcessArgs, saveAgentId } from './cli';
+import { parseProcessArgs, saveAgentId } from './cli';
 
 async function main() {
 	let agentLlms: AgentLLMs = ClaudeLLMs();

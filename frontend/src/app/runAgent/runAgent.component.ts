@@ -6,12 +6,16 @@ import { MatSnackBar } from '@angular/material/snack-bar';
 import { Router } from '@angular/router';
 import { environment } from '@env/environment';
 import { AgentEventService } from '@app/agent-event.service';
+import { LlmService } from '@app/shared/services/llm.service';
+import { AgentType } from '@shared';
 
 interface StartAgentResponse {
   data: {
     agentId: string;
   };
 }
+
+const defaultType: AgentType = 'codegen';
 
 @Component({
   selector: 'app-run-agent',
@@ -20,7 +24,7 @@ interface StartAgentResponse {
 })
 export class RunAgentComponent implements OnInit {
   functions: string[] = [];
-  llms: Array<{ id: string; name: string }> = [];
+  llms: any[] = [];
   runAgentForm: FormGroup;
   isSubmitting: boolean = false;
 
@@ -28,12 +32,13 @@ export class RunAgentComponent implements OnInit {
     private http: HttpClient,
     private snackBar: MatSnackBar,
     private router: Router,
-    private agentEventService: AgentEventService
+    private agentEventService: AgentEventService,
+    private llmService: LlmService
   ) {
     this.runAgentForm = new FormGroup({
       name: new FormControl('', Validators.required),
       userPrompt: new FormControl('', Validators.required),
-      type: new FormControl('python', Validators.required), // TODO make a constant
+      type: new FormControl(defaultType, Validators.required),
       llmEasy: new FormControl('', Validators.required),
       llmMedium: new FormControl('', Validators.required),
       llmHard: new FormControl('', Validators.required),
@@ -83,17 +88,17 @@ export class RunAgentComponent implements OnInit {
           (this.runAgentForm as FormGroup).addControl('function' + index, new FormControl(false));
         });
       });
-    this.http
-      .get<{ data: Array<{ id: string; name: string }> }>(`${environment.serverUrl}/llms/list`)
-      .pipe(
-        map((response) => {
-          console.log(response);
-          return response.data as Array<{ id: string; name: string }>;
-        })
-      )
-      .subscribe((llms) => {
+
+    this.llmService.getLlms().subscribe({
+      next: (llms) => {
         this.llms = llms;
-      });
+      },
+      error: (error) => {
+        console.error('Error fetching LLMs:', error);
+        this.snackBar.open('Failed to load LLMs', 'Close', { duration: 3000 });
+      },
+    });
+
     this.loadUserProfile();
   }
 

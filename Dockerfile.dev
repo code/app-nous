@@ -13,9 +13,9 @@ RUN npm install -g pm2
 
 RUN pip install aider-chat
 
-ENV user     nous
-ENV homedir  /home/nous/
-RUN useradd --create-home -g users nous
+ENV user=sophia
+ENV homedir=/home/sophia/
+RUN useradd --create-home -g users sophia
 WORKDIR $homedir
 
 RUN mkdir ".husky"
@@ -37,7 +37,7 @@ WORKDIR $homedir
 # Switch to non-root user
 USER $user
 
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 # In the frontend package.jsson the `ng serve` needs the arg --host 0.0.0.0 for it to be available from the host machine
 EXPOSE 4200

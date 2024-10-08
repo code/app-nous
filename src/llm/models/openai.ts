@@ -1,5 +1,6 @@
+import { OpenAIChatModelId } from '@ai-sdk/openai/internal';
 import { OpenAI as OpenAISDK } from 'openai';
-import { addCost, agentContext } from '#agent/agentContext';
+import { addCost, agentContext } from '#agent/agentContextLocalStorage';
 import { LlmCall } from '#llm/llmCallService/llmCall';
 import { logger } from '#o11y/logger';
 import { withActiveSpan } from '#o11y/trace';
@@ -7,7 +8,7 @@ import { currentUser } from '#user/userService/userContext';
 import { envVar } from '#utils/env-var';
 import { appContext } from '../../app';
 import { BaseLLM } from '../base-llm';
-import { GenerateTextOptions, LLM, combinePrompts, logTextGeneration } from '../llm';
+import { GenerateTextOptions, LLM, combinePrompts } from '../llm';
 
 export const OPENAI_SERVICE = 'openai';
 
@@ -15,20 +16,47 @@ export function openAiLLMRegistry(): Record<string, () => LLM> {
 	return {
 		'openai:gpt-4o': () => openaiLLmFromModel('gpt-4o'),
 		'openai:gpt-4o-mini': () => openaiLLmFromModel('gpt-4o-mini'),
+		'openai:o1-preview': () => openaiLLmFromModel('o1-preview'),
+		'openai:o1-mini': () => openaiLLmFromModel('o1-mini'),
 	};
 }
 
-type Model = 'gpt-4o' | 'gpt-4o-mini';
+type Model = 'gpt-4o' | 'gpt-4o-mini' | 'o1-preview' | 'o1-mini';
 
 export function openaiLLmFromModel(model: string): LLM {
 	if (model.startsWith('gpt-4o-mini')) return GPT4oMini();
 	if (model.startsWith('gpt-4o')) return GPT4o();
+	if (model.startsWith('o1-preview')) return openAIo1();
+	if (model.startsWith('o1-mini')) return openAIo1mini();
 	throw new Error(`Unsupported ${OPENAI_SERVICE} model: ${model}`);
+}
+
+export function openAIo1() {
+	return new OpenAI(
+		'OpenAI o1',
+		'o1-preview',
+		'o1-preview',
+		128_000,
+		(input: string) => (input.length * 15) / 1_000_000,
+		(output: string) => (output.length * 60) / (1_000_000 * 4),
+	);
+}
+
+export function openAIo1mini() {
+	return new OpenAI(
+		'OpenAI o1-mini',
+		'o1-mini',
+		'o1-mini',
+		128_000,
+		(input: string) => (input.length * 3) / 1_000_000,
+		(output: string) => (output.length * 12) / (1_000_000 * 4),
+	);
 }
 
 export function GPT4o() {
 	return new OpenAI(
 		'GPT4o',
+		'gpt-4o',
 		'gpt-4o',
 		128_000,
 		(input: string) => (input.length * 2.5) / 1_000_000,
@@ -39,6 +67,7 @@ export function GPT4o() {
 export function GPT4oMini() {
 	return new OpenAI(
 		'GPT4o mini',
+		'gpt-4o-mini',
 		'gpt-4o-mini',
 		128_000,
 		(input: string) => (input.length * 0.15) / (1_000_000 * 4),
@@ -52,6 +81,7 @@ export class OpenAI extends BaseLLM {
 	constructor(
 		name: string,
 		model: Model,
+		aiModel: OpenAIChatModelId,
 		maxInputTokens: number,
 		calculateInputCost: (input: string) => number,
 		calculateOutputCost: (output: string) => number,
@@ -62,10 +92,14 @@ export class OpenAI extends BaseLLM {
 	private sdk(): OpenAISDK {
 		if (!this.openAISDK) {
 			this.openAISDK = new OpenAISDK({
-				apiKey: currentUser().llmConfig.openaiKey ?? envVar('OPENAI_API_KEY'),
+				apiKey: currentUser().llmConfig.openaiKey || envVar('OPENAI_API_KEY'),
 			});
 		}
 		return this.openAISDK;
+	}
+
+	isConfigured(): boolean {
+		return Boolean(currentUser().llmConfig.openaiKey || process.env.OPENAI_API_KEY);
 	}
 
 	async generateImage(description: string): Promise<string> {
@@ -81,7 +115,6 @@ export class OpenAI extends BaseLLM {
 		return imageUrl;
 	}
 
-	@logTextGeneration
 	async generateText(userPrompt: string, systemPrompt?: string, opts?: GenerateTextOptions): Promise<string> {
 		return withActiveSpan(`generateText ${opts?.id ?? ''}`, async (span) => {
 			const prompt = combinePrompts(userPrompt, systemPrompt);

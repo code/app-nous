@@ -9,7 +9,7 @@ import {
 	ProjectSchema,
 } from '@gitbeaker/rest';
 import { micromatch } from 'micromatch';
-import { agentContext, getFileSystem, llms } from '#agent/agentContext';
+import { agentContext, getFileSystem, llms } from '#agent/agentContextLocalStorage';
 import { func, funcClass } from '#functionSchema/functionDecorators';
 import { logger } from '#o11y/logger';
 import { span } from '#o11y/trace';
@@ -19,8 +19,9 @@ import { allSettledAndFulFilled } from '#utils/async-utils';
 import { envVar } from '#utils/env-var';
 import { execCommand, failOnError, shellEscape } from '#utils/exec';
 import { appContext } from '../../app';
+import { systemDir } from '../../appVars';
 import { cacheRetry } from '../../cache/cacheRetry';
-import { UtilFunctions } from '../util';
+import { LlmTools } from '../util';
 import { GitProject } from './gitProject';
 import { SourceControlManagement } from './sourceControlManagement';
 
@@ -113,9 +114,9 @@ export class GitLab implements SourceControlManagement {
 	// }
 
 	/**
-	 * @returns the details of all the projects available (name, description, git URL etc)
+	 * @returns the details of all the projects available
 	 */
-	// @cacheRetry({ scope: 'global' })
+	@func()
 	async getProjects(): Promise<GitProject[]> {
 		const resultProjects: GitProject[] = [];
 		for (const group of this.config().topLevelGroups) {
@@ -178,7 +179,7 @@ export class GitLab implements SourceControlManagement {
 	@func()
 	async cloneProject(projectPathWithNamespace: string): Promise<string> {
 		if (!projectPathWithNamespace) throw new Error('Parameter "projectPathWithNamespace" must be truthy');
-		const path = join(getFileSystem().basePath, '.nous', 'gitlab', projectPathWithNamespace);
+		const path = join(systemDir(), 'gitlab', projectPathWithNamespace);
 
 		// If the project already exists pull updates
 		if (existsSync(path) && existsSync(join(path, '.git'))) {
@@ -226,7 +227,7 @@ export class GitLab implements SourceControlManagement {
 		const { exitCode, stdout, stderr } = await execCommand(cmd);
 		if (exitCode > 0) throw new Error(`${stdout}\n${stderr}`);
 
-		const url = await new UtilFunctions().processText(stdout, 'Respond only with the URL where the merge request is.');
+		const url = await new LlmTools().processText(stdout, 'Respond only with the URL where the merge request is.');
 
 		if (URL.canParse(url) && url.includes(this.config().host)) {
 			// TODO add the current user as a reviewer
@@ -399,20 +400,20 @@ Response only in JSON format. Do not wrap the JSON in any tags.
 
 		const project = await this.api().Projects.show(projectPath);
 		const job = await this.api().Jobs.show(project.id, jobId);
-		console.log('pipeline ---------------------------');
-		console.log(job.pipeline);
-		console.log('commit -----------------------------');
-		console.log(job.commit);
-		console.log('diff   -----------------------------');
+
+		return await this.api().Jobs.showLog(project.id, job.id);
+	}
+
+	@func()
+	async getJobCommitDiff(projectPath: string, jobId: string): Promise<string> {
+		if (!projectPath) throw new Error('Parameter "projectPath" must be truthy');
+		if (!jobId) throw new Error('Parameter "jobId" must be truthy');
+
+		const project = await this.api().Projects.show(projectPath);
+		const job = await this.api().Jobs.show(project.id, jobId);
+
 		const commitDetails: CommitDiffSchema[] = await this.api().Commits.showDiff(projectPath, job.commit.id);
-		for (const commit of commitDetails) {
-			console.log(commit.diff);
-		}
-
-		console.log('logs -------------------------------');
-		const logs = await this.api().Jobs.showLog(project.id, job.id);
-
-		return logs;
+		return commitDetails.map((commitDiff) => commitDiff.diff).join('\n');
 	}
 }
 

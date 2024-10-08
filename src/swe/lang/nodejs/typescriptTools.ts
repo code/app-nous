@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'path';
-import { getFileSystem } from '#agent/agentContext';
+import { getFileSystem } from '#agent/agentContextLocalStorage';
 import { func, funcClass } from '#functionSchema/functionDecorators';
 import { logger } from '#o11y/logger';
 import { ExecResult, execCommand, failOnError, runShellCommand } from '#utils/exec';
+import { sophiaDirName } from '../../../appVars';
 import { LanguageTools } from '../languageTools';
 
 // https://typescript.tv/errors/
@@ -13,11 +14,12 @@ export class TypescriptTools implements LanguageTools {
 	/**
 	 * Runs the command `npm run <script>`
 	 * @param script the script in the package.json file to run
+	 * @param args Arguments to add to the `npm run <script>` command
 	 * @reutrn the stdout and stderr
 	 */
 	@func()
-	async runNpmScript(script: string): Promise<string> {
-		const packageJson = JSON.parse(readFileSync('package.json').toString());
+	async runNpmScript(script: string, args: string[] = []): Promise<string> {
+		const packageJson = JSON.parse(await getFileSystem().readFile('package.json'));
 		if (!packageJson.scripts[script]) throw new Error(`Npm script ${script} doesn't exist in package.json`);
 		const result = await runShellCommand(`npm run ${script}`);
 		failOnError(`Error running npm run ${script}`, result);
@@ -33,7 +35,8 @@ export class TypescriptTools implements LanguageTools {
 	async generateProjectMap(): Promise<string> {
 		// Note that the project needs to be in a compilable state otherwise this will fail
 		logger.info('Generating TypeScript project map');
-		const dtsFolder = '.nous/dts';
+		// TODO dtsFolder needs to be the repository root of the FileSystem workingDirectory
+		const dtsFolder = `${sophiaDirName}/dts/`;
 		const tsConfigExists = await getFileSystem().fileExists('tsconfig.json');
 		if (!tsConfigExists) throw new Error(`tsconfig.json not found in ${getFileSystem().getWorkingDirectory()}`);
 
@@ -43,7 +46,7 @@ export class TypescriptTools implements LanguageTools {
 
 		const dtsFiles = new Map();
 		// getFileSystem().setWorkingDirectory(dtsFolder)
-		const allFiles = await getFileSystem().getFileContentsRecursively(dtsFolder, false);
+		const allFiles: Map<string, string> = await getFileSystem().getFileContentsRecursively(dtsFolder, false);
 		// getFileSystem().setWorkingDirectory(process.cwd())
 
 		allFiles.forEach((value, key) => {
@@ -96,7 +99,7 @@ export class TypescriptTools implements LanguageTools {
 			if (packageJson.devDependencies) {
 				info += '<development>\n';
 				for (const [pkg, version] of Object.entries(packageJson.devDependencies)) {
-					info += `${pkg}: ${version}\n`;
+					if (!pkg.startsWith('@types/')) info += `${pkg}: ${version}\n`;
 				}
 				info += '</development>\n';
 			}

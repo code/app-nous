@@ -3,12 +3,12 @@ import { ImageGen } from '#functions/image';
 import { Jira } from '#functions/jira';
 import { GitHub } from '#functions/scm/github';
 import { GitLab } from '#functions/scm/gitlab';
-import { Slack } from '#functions/slack';
-import { FileSystem } from '#functions/storage/filesystem';
+import { FileSystemRead } from '#functions/storage/FileSystemRead';
 import { LocalFileStore } from '#functions/storage/localFileStore';
-import { UtilFunctions } from '#functions/util';
+import { LlmTools } from '#functions/util';
 import { Perplexity } from '#functions/web/perplexity';
 import { PublicWeb } from '#functions/web/web';
+import { Slack } from '#modules/slack/slack';
 import { CodeEditingAgent } from '#swe/codeEditingAgent';
 import { SoftwareDeveloperAgent } from '#swe/softwareDeveloperAgent';
 
@@ -19,7 +19,8 @@ import { SoftwareDeveloperAgent } from '#swe/softwareDeveloperAgent';
 export function functionRegistry(): Array<new () => any> {
 	return [
 		CodeEditingAgent,
-		FileSystem,
+		FileSystemRead,
+		// FileSystemWrite,
 		LocalFileStore,
 		GitLab,
 		// GitHub, // Error: More than one function classes found implementing SourceControlManagement
@@ -28,7 +29,7 @@ export function functionRegistry(): Array<new () => any> {
 		Perplexity,
 		Slack,
 		SoftwareDeveloperAgent,
-		UtilFunctions,
+		LlmTools,
 		ImageGen,
 		PublicWeb,
 		// Add your own classes below this line

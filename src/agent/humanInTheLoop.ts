@@ -1,6 +1,6 @@
 import readline from 'readline';
-import { AgentContext } from '#agent/agentContext';
-import { Slack } from '#functions/slack';
+import { AgentContext } from '#agent/agentContextTypes';
+import { Slack } from '#modules/slack/slack';
 import { logger } from '#o11y/logger';
 /**
  * Adding a human in the loop, so it doesn't consume all of your budget
@@ -53,10 +53,6 @@ export async function notifySupervisor(agent: AgentContext, message: string) {
 	}
 }
 
-export async function agentHumanInTheLoop(reason: string) {
-	await waitForConsoleInput(reason);
-}
-
-export async function toolHumanInTheLoop(reason: string) {
+export async function humanInTheLoop(reason: string) {
 	await waitForConsoleInput(reason);
 }

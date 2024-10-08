@@ -1,5 +1,5 @@
 import { Anthropic as AnthropicSdk } from '@anthropic-ai/sdk';
-import { AgentLLMs, addCost, agentContext } from '#agent/agentContext';
+import { addCost, agentContext } from '#agent/agentContextLocalStorage';
 import { envVar } from '#utils/env-var';
 import { BaseLLM } from '../base-llm';
 import { MaxTokensError } from '../errors';
@@ -13,6 +13,7 @@ import { currentUser } from '#user/userService/userContext';
 import { appContext } from '../../app';
 import { RetryableError } from '../../cache/cacheRetry';
 import TextBlock = AnthropicSdk.TextBlock;
+import { AgentLLMs } from '#agent/agentContextTypes';
 import { CallerId } from '#llm/llmCallService/llmCallService';
 
 export const ANTHROPIC_SERVICE = 'anthropic';
@@ -82,6 +83,10 @@ export class Anthropic extends BaseLLM {
 			this.anthropic = new AnthropicSdk({ apiKey: currentUser().llmConfig.anthropicKey || envVar('ANTHROPIC_API_KEY') });
 		}
 		return this.anthropic;
+	}
+
+	isConfigured(): boolean {
+		return Boolean(currentUser().llmConfig.anthropicKey || process.env.ANTHROPIC_API_KEY);
 	}
 
 	@logTextGeneration

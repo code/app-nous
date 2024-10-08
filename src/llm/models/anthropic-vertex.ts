@@ -1,20 +1,19 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
-import { AgentLLMs, addCost, agentContext } from '#agent/agentContext';
+import { addCost, agentContext } from '#agent/agentContextLocalStorage';
 import { BaseLLM } from '../base-llm';
 import { MaxTokensError } from '../errors';
 import { GenerateTextOptions, LLM, LlmMessage, combinePrompts, logTextGeneration } from '../llm';
 import Message = Anthropic.Message;
 import { LlmCall } from '#llm/llmCallService/llmCall';
-import { CallerId } from '#llm/llmCallService/llmCallService';
 import { logger } from '#o11y/logger';
 import { withActiveSpan } from '#o11y/trace';
 import { currentUser } from '#user/userService/userContext';
 import { envVar } from '#utils/env-var';
 import { appContext } from '../../app';
 import { RetryableError, cacheRetry } from '../../cache/cacheRetry';
-import { MultiLLM } from '../multi-llm';
 import TextBlock = Anthropic.TextBlock;
+import { AgentLLMs } from '#agent/agentContextTypes';
 
 export const ANTHROPIC_VERTEX_SERVICE = 'anthropic-vertex';
 
@@ -90,10 +89,14 @@ class AnthropicVertexLLM extends BaseLLM {
 		if (!this.client) {
 			this.client = new AnthropicVertex({
 				projectId: currentUser().llmConfig.vertexProjectId ?? envVar('GCLOUD_PROJECT'),
-				region: envVar('GCLOUD_CLAUDE_REGION') ?? currentUser().llmConfig.vertexRegion ?? envVar('GCLOUD_REGION'),
+				region: currentUser().llmConfig.vertexRegion || process.env.GCLOUD_CLAUDE_REGION || envVar('GCLOUD_REGION'),
 			});
 		}
 		return this.client;
+	}
+
+	isConfigured(): boolean {
+		return Boolean(currentUser().llmConfig.vertexRegion || process.env.GCLOUD_CLAUDE_REGION || process.env.GCLOUD_REGION);
 	}
 
 	// Error when
@@ -111,7 +114,7 @@ class AnthropicVertexLLM extends BaseLLM {
 				inputChars: combinedPrompt.length,
 				model: this.model,
 				service: this.service,
-				caller: agentContext().callStack.at(-1) ?? '',
+				caller: agentContext()?.callStack.at(-1) ?? '',
 			});
 			if (opts?.id) span.setAttribute('id', opts.id);
 
@@ -119,8 +122,8 @@ class AnthropicVertexLLM extends BaseLLM {
 				userPrompt,
 				systemPrompt,
 				llmId: this.getId(),
-				agentId: agentContext().agentId,
-				callStack: agentContext().callStack.join(' > '),
+				agentId: agentContext()?.agentId,
+				callStack: agentContext()?.callStack.join(' > '),
 			});
 			const requestTime = Date.now();
 
@@ -190,7 +193,7 @@ class AnthropicVertexLLM extends BaseLLM {
 				outputCost: outputCost.toFixed(4),
 				cost: cost.toFixed(4),
 				outputChars: responseText.length,
-				callStack: agentContext().callStack.join(' > '),
+				callStack: agentContext()?.callStack.join(' > '),
 			});
 
 			try {
@@ -213,10 +216,9 @@ class AnthropicVertexLLM extends BaseLLM {
 	// Error when
 	// {"error":{"code":400,"message":"Project `1234567890` is not allowed to use Publisher Model `projects/project-id/locations/us-central1/publishers/anthropic/models/claude-3-haiku@20240307`","status":"FAILED_PRECONDITION"}}
 	@cacheRetry({ backOffMs: 5000 })
-	// @logTextGeneration
-	async generateText2(messages: LlmMessage[], opts?: GenerateTextOptions): Promise<string> {
-		return await withActiveSpan(`generateText ${opts?.id ?? ''}`, async (span) => {
-			const maxOutputTokens = 4096;
+	async generateTextFromMessages(messages: LlmMessage[], opts?: GenerateTextOptions): Promise<string> {
+		return await withActiveSpan(`generateText2 ${opts?.id ?? ''}`, async (span) => {
+			const maxOutputTokens = this.model.includes('3-5') ? 8192 : 4096;
 
 			let systemPrompt: string | undefined;
 			if (messages[0].role === 'system') {
@@ -226,36 +228,40 @@ class AnthropicVertexLLM extends BaseLLM {
 			}
 
 			const userPrompt = messages.map((msg) => msg.text).join('\n');
-			const combinedPrompt = combinePrompts(userPrompt, systemPrompt);
 
 			span.setAttributes({
 				userPrompt,
-				inputChars: combinedPrompt.length,
+				// inputChars: combinedPrompt.length,
 				model: this.model,
 				service: this.service,
-				caller: agentContext().callStack.at(-1) ?? '',
+				caller: agentContext()?.callStack.at(-1) ?? '',
 			});
 			if (opts?.id) span.setAttribute('id', opts.id);
 
 			const llmCallSave: Promise<LlmCall> = appContext().llmCallService.saveRequest({
-				userPrompt,
-				systemPrompt,
+				messages,
 				llmId: this.getId(),
-				agentId: agentContext().agentId,
-				callStack: agentContext().callStack.join(' > '),
+				agentId: agentContext()?.agentId,
+				callStack: agentContext()?.callStack.join(' > '),
 			});
 			const requestTime = Date.now();
 
 			let message: Message;
 			try {
+				let systemMessage: Anthropic.Messages.TextBlockParam[] | undefined = undefined;
+				if (messages[0].role === 'system') {
+					const message = messages.splice(0, 1)[0];
+					systemMessage = [{ type: 'text', text: message.text }];
+					// if(source.cache)
+					// 	systemMessage[0].cacheControl = 'ephemeral'
+				}
+
+				const anthropicMessages: Anthropic.Messages.MessageParam[] = messages.map((message) => {
+					return { role: message.role as 'user' | 'assistant', content: message.text };
+				});
 				message = await this.api().messages.create({
-					system: systemPrompt ? [{ type: 'text', text: systemPrompt }] : undefined,
-					messages: [
-						{
-							role: 'user',
-							content: userPrompt,
-						},
-					],
+					system: systemMessage,
+					messages: anthropicMessages,
 					model: this.model,
 					max_tokens: maxOutputTokens,
 					stop_sequences: opts?.stopSequences,
@@ -292,15 +298,15 @@ class AnthropicVertexLLM extends BaseLLM {
 			const inputTokens = message.usage.input_tokens;
 			const outputTokens = message.usage.output_tokens;
 
-			const inputCost = this.calculateInputCost(combinedPrompt);
-			const outputCost = this.calculateOutputCost(responseText);
-			const cost = inputCost + outputCost;
-			addCost(cost);
+			// const inputCost = this.calculateInputCost(combinedPrompt);
+			// const outputCost = this.calculateOutputCost(responseText);
+			// const cost = inputCost + outputCost;
+			// addCost(cost);
 
 			llmCall.responseText = responseText;
 			llmCall.timeToFirstToken = timeToFirstToken;
 			llmCall.totalTime = finishTime - requestTime;
-			llmCall.cost = cost;
+			// llmCall.cost = cost;
 			llmCall.inputTokens = inputTokens;
 			llmCall.outputTokens = outputTokens;
 
@@ -308,15 +314,15 @@ class AnthropicVertexLLM extends BaseLLM {
 				inputTokens,
 				outputTokens,
 				response: responseText,
-				inputCost: inputCost.toFixed(4),
-				outputCost: outputCost.toFixed(4),
-				cost: cost.toFixed(4),
+				// inputCost: inputCost.toFixed(4),
+				// outputCost: outputCost.toFixed(4),
+				// cost: cost.toFixed(4),
 				outputChars: responseText.length,
-				callStack: agentContext().callStack.join(' > '),
+				callStack: agentContext()?.callStack.join(' > '),
 			});
 
 			try {
-				await appContext().llmCallService.saveResponse(llmCall);
+				await appContext()?.llmCallService.saveResponse(llmCall);
 			} catch (e) {
 				// queue to save
 				logger.error(e);

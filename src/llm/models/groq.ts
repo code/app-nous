@@ -1,26 +1,23 @@
 import Groq from 'groq-sdk';
-import { AgentLLMs, agentContext } from '#agent/agentContext';
-import { addCost } from '#agent/agentContext';
+import { agentContext } from '#agent/agentContextLocalStorage';
+import { addCost } from '#agent/agentContextLocalStorage';
+import { AgentLLMs } from '#agent/agentContextTypes';
 import { LlmCall } from '#llm/llmCallService/llmCall';
-import { CallerId } from '#llm/llmCallService/llmCallService';
 import { withActiveSpan } from '#o11y/trace';
 import { currentUser } from '#user/userService/userContext';
 import { envVar } from '#utils/env-var';
 import { appContext } from '../../app';
 import { RetryableError } from '../../cache/cacheRetry';
 import { BaseLLM } from '../base-llm';
-import { GenerateTextOptions, LLM, combinePrompts, logDuration } from '../llm';
-import { MultiLLM } from '../multi-llm';
+import { GenerateTextOptions, LLM, combinePrompts } from '../llm';
 
 export const GROQ_SERVICE = 'groq';
 
 export function groqLLMRegistry(): Record<string, () => LLM> {
 	return {
-		'groq:mixtral-8x7b-32768': groqMixtral8x7b,
-		'groq:gemma-7b-it': groqGemma7bIt,
-		'groq:llama3-70b-8192': groqLlama3_70B,
 		'groq:gemma2-9b-it': groqGemma2_9b,
-		'groq:llama3-8b-8192': groqLlama3_8b,
+		'groq:llama-3.1-8b-instant': groqLlama3_1_8b,
+		'groq:llama-3.1-70b-versatile': groqLlama3_1_70B,
 	};
 }
 
@@ -35,58 +32,26 @@ export function groqGemma2_9b(): LLM {
 	);
 }
 
-export function groqLlama3_8b(): LLM {
+export function groqLlama3_1_8b(): LLM {
 	return new GroqLLM(
-		'LLaMA3 8b (Groq)',
+		'LLaMA3.1 8b (Groq)',
 		GROQ_SERVICE,
-		'llama3-8b-8192',
-		8_192,
+		'llama-3.1-8b-instant',
+		131_072,
 		(input: string) => (input.length * 0.05) / (1_000_000 * 4),
 		(output: string) => (output.length * 0.08) / (1_000_000 * 4),
 	);
 }
 
-export function groqMixtral8x7b(): LLM {
+export function groqLlama3_1_70B(): LLM {
 	return new GroqLLM(
-		'Mixtral 8x7b (Groq)',
-		GROQ_SERVICE,
-		'mixtral-8x7b-32768',
-		32_768,
-		(input: string) => (input.length * 0.27) / (1_000_000 * 3.5),
-		(output: string) => (output.length * 0.27) / (1_000_000 * 3.5),
-	);
-}
-
-export function groqGemma7bIt(): LLM {
-	return new GroqLLM(
-		'Gemma 7b-it (Groq)',
-		GROQ_SERVICE,
-		'gemma-7b-it',
-		8_192,
-		(input: string) => (input.length * 0.1) / (1_000_000 * 3.5),
-		(output: string) => (output.length * 0.1) / (1_000_000 * 3.5),
-	);
-}
-
-export function groqLlama3_70B(): LLM {
-	return new GroqLLM(
-		'Llama3 70b (Groq)',
+		'Llama3.1 70b (Groq)',
 		GROQ_SERVICE,
 		'llama-3.1-70b-versatile',
-		8000, //131_072,
+		131_072,
 		(input: string) => (input.length * 0.59) / (1_000_000 * 4),
 		(output: string) => (output.length * 0.79) / (1_000_000 * 4),
 	);
-}
-
-export function grokLLMs(): AgentLLMs {
-	const mixtral = groqMixtral8x7b();
-	return {
-		easy: groqGemma7bIt(),
-		medium: mixtral,
-		hard: groqLlama3_70B(),
-		xhard: new MultiLLM([mixtral, groqLlama3_70B()], 5),
-	};
 }
 
 /**
@@ -98,13 +63,16 @@ export class GroqLLM extends BaseLLM {
 	groq(): Groq {
 		if (!this._groq) {
 			this._groq = new Groq({
-				apiKey: currentUser().llmConfig.groqKey ?? envVar('GROQ_API_KEY'),
+				apiKey: currentUser().llmConfig.groqKey || envVar('GROQ_API_KEY'),
 			});
 		}
 		return this._groq;
 	}
 
-	@logDuration
+	isConfigured(): boolean {
+		return Boolean(currentUser().llmConfig.groqKey || process.env.GROQ_API_KEY);
+	}
+
 	async generateText(userPrompt: string, systemPrompt?: string, opts?: GenerateTextOptions): Promise<string> {
 		return withActiveSpan(`generateText ${opts?.id ?? ''}`, async (span) => {
 			const prompt = combinePrompts(userPrompt, systemPrompt);
@@ -171,6 +139,17 @@ export class GroqLLM extends BaseLLM {
 				return responseText;
 			} catch (e) {
 				if (e.error?.code === 'rate_limit_exceeded') throw new RetryableError(e);
+
+				/*
+				message: "429 {\"error\":{\"message\":\"Rate limit reached for model `llama-3.1-70b-versatile` in organization `org_01hrcrxd39e6ksnmqv6rydzy02` on tokens per minute (TPM): Limit 20000, Used 27280, Requested 9378. Please try again in 49.974s. Visit https://console.groq.com/docs/rate-limits for more information.\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}}"
+				err: {
+				  "type": "RateLimitError",
+				  "message": "429 {\"error\":{\"message\":\"Rate limit reached for model `llama-3.1-70b-versatile` in organization `org_01hrcrxd39e6ksnmqv6rydzy02` on tokens per minute (TPM): Limit 20000, Used 27280, Requested 9378. Please try again in 49.974s. Visit https://console.groq.com/docs/rate-limits for more information.\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}}",
+				  "stack":
+					  Error: 429 {"error":{"message":"Rate limit reached for model `llama-3.1-70b-versatile` in organization `org_01hrcrxd39e6ksnmqv6rydzy02` on tokens per minute (TPM): Limit 20000, Used 27280, Requested 9378. Please try again in 49.974s. Visit https://console.groq.com/docs/rate-limits for more information.","type":"tokens","code":"rate_limit_exceeded"}}
+
+				 */
+
 				throw e;
 			}
 		});

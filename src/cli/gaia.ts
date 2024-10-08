@@ -1,17 +1,17 @@
 import '#fastify/trace-init/trace-init'; // leave an empty line next so this doesn't get sorted from the first line
 
 import { promises as fs, readFileSync } from 'fs';
-import { AgentLLMs } from '#agent/agentContext';
+import { AgentLLMs } from '#agent/agentContextTypes';
 import { AGENT_COMPLETED_PARAM_NAME } from '#agent/agentFunctions';
 import { startAgent, startAgentAndWait } from '#agent/agentRunner';
-import { FileSystem } from '#functions/storage/filesystem';
-import { UtilFunctions } from '#functions/util';
+import { FileSystemRead } from '#functions/storage/FileSystemRead';
+import { LlmTools } from '#functions/util';
 import { Perplexity } from '#functions/web/perplexity';
 import { PublicWeb } from '#functions/web/web';
 import { LlmCall } from '#llm/llmCallService/llmCall';
 import { ClaudeLLMs } from '#llm/models/anthropic';
 import { Claude3_5_Sonnet_Vertex, ClaudeVertexLLMs } from '#llm/models/anthropic-vertex';
-import { groqLlama3_70B } from '#llm/models/groq';
+import { groqLlama3_1_70B } from '#llm/models/groq';
 import { Gemini_1_5_Flash } from '#llm/models/vertexai';
 import { logger } from '#o11y/logger';
 import { sleep } from '#utils/async-utils';
@@ -91,17 +91,17 @@ async function answerGaiaQuestion(task: GaiaQuestion): Promise<GaiaResult> {
 			// llms: ClaudeVertexLLMs(),
 			llms: {
 				easy: Gemini_1_5_Flash(),
-				medium: groqLlama3_70B(),
+				medium: groqLlama3_1_70B(),
 				hard: Claude3_5_Sonnet_Vertex(),
 				xhard: Claude3_5_Sonnet_Vertex(),
 			},
 			agentName: `gaia-${task.task_id}`,
-			type: 'python',
+			type: 'codegen',
 			humanInLoop: {
 				budget,
 				count: 100,
 			},
-			functions: [PublicWeb, Perplexity, FileSystem, UtilFunctions],
+			functions: [PublicWeb, Perplexity, FileSystemRead, LlmTools],
 		});
 
 		const agent = await appContext().agentStateService.load(agentId);
@@ -138,7 +138,7 @@ async function main() {
 		llms = ClaudeLLMs();
 	}
 
-	const args = process.argv.toSpliced(2);
+	const args = process.argv.slice(2);
 	const questions = JSON.parse(readFileSync(tasksFile).toString()) as GaiaQuestion[];
 	if (args.length === 0) {
 		logger.info('Running entire Gaia benchmark...');

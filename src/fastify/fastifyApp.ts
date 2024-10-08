@@ -22,6 +22,11 @@ import { loadOnRequestHooks } from './hooks';
 
 const NODE_ENV = process.env.NODE_ENV ?? 'local';
 
+export const DEFAULT_HEALTHCHECK = '/health-check';
+
+/** Path prefix that the Angular app is served on. */
+const UI_PREFIX = '/ui/';
+
 export type TypeBoxFastifyInstance = FastifyInstance<
 	http.Server,
 	RawRequestDefaultExpression<http.Server>,
@@ -42,8 +47,8 @@ export interface FastifyConfig {
 	routes: RouteDefinition[];
 	instanceDecorators?: { [key: string]: any };
 	requestDecorators?: { [key: string]: any };
-	/** Overrides the default url of /health-check */
-	healthcheckUrl?: string;
+	/** Overrides the default url of /health-check. IAP middleware is currently dependent on DEFAULT_HEALTHCHECK */
+	// healthcheckUrl?: string;
 }
 
 export async function initFastify(config: FastifyConfig): Promise<void> {
@@ -62,7 +67,7 @@ export async function initFastify(config: FastifyConfig): Promise<void> {
 	registerRoutes(config.routes);
 	fastifyInstance.register(require('@fastify/static'), {
 		root: join(process.cwd(), 'public'),
-		prefix: '/ui/', // optional: default '/'
+		prefix: UI_PREFIX, // optional: default '/'
 		// constraints: { host: 'example.com' } // optional: default {}
 	});
 	setErrorHandler();
@@ -105,7 +110,7 @@ async function loadPlugins(config: FastifyConfig) {
 		credentials: true,
 	});
 	fastifyInstance.register(require('fastify-healthcheck'), {
-		healthcheckUrl: config.healthcheckUrl ?? '/health-check',
+		healthcheckUrl: /* config.healthcheckUrl ?? */ DEFAULT_HEALTHCHECK,
 	});
 	await fastifyInstance.register(import('fastify-raw-body'), {
 		field: 'rawBody',

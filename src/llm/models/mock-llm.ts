@@ -1,4 +1,5 @@
-import { AgentLLMs, addCost, agentContext } from '#agent/agentContext';
+import { addCost, agentContext } from '#agent/agentContextLocalStorage';
+import { AgentLLMs } from '#agent/agentContextTypes';
 import { LlmCall } from '#llm/llmCallService/llmCall';
 import { logger } from '#o11y/logger';
 import { withActiveSpan } from '#o11y/trace';
@@ -68,8 +69,8 @@ export class MockLLM extends BaseLLM {
 				userPrompt,
 				systemPrompt,
 				llmId: this.getId(),
-				agentId: agentContext().agentId,
-				callStack: agentContext().callStack.join(' > '),
+				agentId: agentContext()?.agentId,
+				callStack: agentContext()?.callStack.join(' > '),
 			});
 			const requestTime = Date.now();
 
@@ -113,7 +114,7 @@ export class MockLLM extends BaseLLM {
 				outputChars: responseText.length,
 			});
 
-			logger.info(`MockLLM response ${responseText}`);
+			logger.debug(`MockLLM response ${responseText}`);
 			return responseText;
 		});
 	}

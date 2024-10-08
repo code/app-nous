@@ -1,11 +1,11 @@
 import '#fastify/trace-init/trace-init'; // leave an empty line next so this doesn't get sorted from the first line
 
 import { LlmFunctions } from '#agent/LlmFunctions';
-import { AgentContext, AgentLLMs, agentContextStorage, createContext, getFileSystem, llms } from '#agent/agentContext';
+import { agentContextStorage, createContext, getFileSystem, llms } from '#agent/agentContextLocalStorage';
 import { Jira } from '#functions/jira';
 import { GitLab } from '#functions/scm/gitlab';
-import { Slack } from '#functions/slack';
-import { FileSystem } from '#functions/storage/filesystem';
+
+import { FileSystemService } from '#functions/storage/fileSystemService';
 import { Claude3_Opus, ClaudeLLMs } from '#llm/models/anthropic';
 import { Claude3_5_Sonnet_Vertex, Claude3_Haiku_Vertex, Claude3_Sonnet_Vertex, ClaudeVertexLLMs } from '#llm/models/anthropic-vertex';
 import { GPT4o } from '#llm/models/openai';
@@ -14,6 +14,7 @@ import { MultiLLM } from '#llm/multi-llm';
 import { appContext } from '../app';
 
 import { writeFileSync } from 'fs';
+import { AgentContext, AgentLLMs } from '#agent/agentContextTypes';
 import { RunAgentConfig } from '#agent/agentRunner';
 import { TypescriptTools } from '#swe/lang/nodejs/typescriptTools';
 import { envVarHumanInLoopSettings } from './cliHumanInLoop';
@@ -36,7 +37,7 @@ const utilLLMs: AgentLLMs = {
 async function main() {
 	await appContext().userService.ensureSingleUser();
 	const functions = new LlmFunctions();
-	functions.addFunctionClass(FileSystem);
+	functions.addFunctionClass(FileSystemService);
 
 	const config: RunAgentConfig = {
 		agentName: 'util',

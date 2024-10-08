@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { DEFAULT_HEALTHCHECK } from '#fastify/fastifyApp';
 import { sendBadRequest } from './responses';
 
 export interface RouteInterface {
@@ -17,7 +18,7 @@ export function loadOnRequestHooks(fastify: FastifyInstance) {
 		}
 
 		request.custom = {};
-		if (routerPath === '/health-check') {
+		if (routerPath === DEFAULT_HEALTHCHECK) {
 			request.custom.requestRoute = {
 				method: routerMethod,
 				version: '',

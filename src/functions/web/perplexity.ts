@@ -1,7 +1,7 @@
 import { logger } from '#o11y/logger';
 
 import OpenAI from 'openai';
-import { addCost, agentContext, llms } from '#agent/agentContext';
+import { addCost, agentContext, llms } from '#agent/agentContextLocalStorage';
 import { func, funcClass } from '#functionSchema/functionDecorators';
 import { functionConfig } from '#user/userService/userContext';
 import { envVar } from '#utils/env-var';
@@ -40,7 +40,7 @@ export class Perplexity {
 			});
 
 			response = await perplexity.chat.completions.create({
-				model: 'llama-3-sonar-large-32k-online',
+				model: 'llama-3.1-sonar-large-128k-online',
 				max_tokens: 4096,
 				messages: [{ role: 'user', content: researchQuery }],
 				stream: false,

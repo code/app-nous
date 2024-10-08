@@ -1,9 +1,11 @@
 import { readFileSync } from 'fs';
 import { Span, SpanStatusCode } from '@opentelemetry/api';
+import { ConsoleCompletedHandler, runAgentCompleteHandler, stateNotificationMessage } from '#agent/agentCompletion';
+import { AgentContext } from '#agent/agentContextTypes';
 import { AGENT_COMPLETED_NAME, AGENT_REQUEST_FEEDBACK } from '#agent/agentFunctions';
 import { buildFunctionCallHistoryPrompt, buildMemoryPrompt, buildToolStatePrompt, updateFunctionSchemas } from '#agent/agentPromptUtils';
-import { AgentExecution, formatFunctionError, formatFunctionResult, notificationMessage, summariseLongFunctionOutput } from '#agent/agentRunner';
-import { agentHumanInTheLoop, notifySupervisor } from '#agent/humanInTheLoop';
+import { AgentExecution, formatFunctionError, formatFunctionResult, summariseLongFunctionOutput } from '#agent/agentRunner';
+import { humanInTheLoop, notifySupervisor } from '#agent/humanInTheLoop';
 import { getServiceName } from '#fastify/trace-init/trace-init';
 import { FunctionSchema, getAllFunctionSchemas } from '#functionSchema/functions';
 import { FunctionResponse } from '#llm/llm';
@@ -12,7 +14,7 @@ import { withActiveSpan } from '#o11y/trace';
 import { envVar } from '#utils/env-var';
 import { errorToString } from '#utils/errors';
 import { appContext } from '../app';
-import { AgentContext, agentContext, agentContextStorage, llms } from './agentContext';
+import { agentContext, agentContextStorage, llms } from './agentContextLocalStorage';
 
 export const XML_AGENT_SPAN = 'XmlAgent';
 
@@ -77,7 +79,11 @@ export async function runXmlAgent(agent: AgentContext): Promise<AgentExecution> 
 				let controlError = false;
 				try {
 					if (hilCount && countSinceHil === hilCount) {
-						await agentHumanInTheLoop(`Agent control loop has performed ${hilCount} iterations`);
+						agent.state = 'hil';
+						await agentStateService.save(agent);
+						await humanInTheLoop(`Agent control loop has performed ${hilCount} iterations`);
+						agent.state = 'agent';
+						await agentStateService.save(agent);
 						countSinceHil = 0;
 					}
 					countSinceHil++;
@@ -88,9 +94,10 @@ export async function runXmlAgent(agent: AgentContext): Promise<AgentExecution> 
 					costSinceHil += newCosts;
 					logger.debug(`Spent $${costSinceHil.toFixed(2)} since last input. Total cost $${agentContextStorage.getStore().cost.toFixed(2)}`);
 					if (hilBudget && costSinceHil > hilBudget) {
-						await agentHumanInTheLoop(`Agent cost has increased by USD\$${costSinceHil.toFixed(2)}`);
+						await humanInTheLoop(`Agent cost has increased by USD\$${costSinceHil.toFixed(2)}`);
 						costSinceHil = 0;
 					}
+
 					const filePrompt = await buildToolStatePrompt();
 
 					if (!currentPrompt.includes('<function_call_history>')) {
@@ -219,16 +226,7 @@ export async function runXmlAgent(agent: AgentContext): Promise<AgentExecution> 
 			});
 		}
 
-		// Send notification message
-		const uiUrl = envVar('UI_URL');
-		let message = notificationMessage(agent);
-		message += `\n${uiUrl}/agent/${agent.agentId}`;
-		logger.info(message);
-		try {
-			await notifySupervisor(agent, message);
-		} catch (e) {
-			logger.warn(e`Failed to send supervisor notification message ${message}`);
-		}
+		await runAgentCompleteHandler(agent);
 	});
 	return { agentId: agent.agentId, execution };
 }

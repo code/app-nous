@@ -1,7 +1,5 @@
-import { logger } from '#o11y/logger';
-import { BaseLLM } from './base-llm';
-
 // https://github.com/AgentOps-AI/tokencost/blob/main/tokencost/model_prices.json
+import { StreamTextResult } from 'ai';
 
 export interface GenerateTextOptions {
 	type?: 'text' | 'json';
@@ -36,15 +34,17 @@ export type GenerateFunctionOptions = Omit<GenerateTextOptions, 'type'>;
 export interface LlmMessage {
 	role: 'system' | 'user' | 'assistant';
 	text: string;
+	/** The LLM which generated the text (only when role=assistant) */
+	llmId?: string;
 	/** Set the cache_control flag with Claude models */
-	cache: boolean;
+	cache?: 'ephemeral';
 }
 
 export function system(text: string, cache = false): LlmMessage {
 	return {
 		role: 'system',
 		text: text,
-		cache,
+		cache: cache ? 'ephemeral' : undefined,
 	};
 }
 
@@ -52,7 +52,7 @@ export function user(text: string, cache = false): LlmMessage {
 	return {
 		role: 'user',
 		text: text,
-		cache,
+		cache: cache ? 'ephemeral' : undefined,
 	};
 }
 
@@ -65,15 +65,14 @@ export function assistant(text: string): LlmMessage {
 	return {
 		role: 'assistant',
 		text: text,
-		cache: false,
 	};
 }
 
 export interface LLM {
-	generateText2(messages: LlmMessage[]): Promise<string>;
+	generateTextFromMessages(messages: LlmMessage[], opts?: GenerateTextOptions): Promise<string>;
 
 	/* Generates a response that is expected to be in JSON format, and returns the object */
-	generateJson2<T>(messages: LlmMessage[], opts?: GenerateJsonOptions): Promise<T>;
+	generateJsonFromMessages<T>(messages: LlmMessage[], opts?: GenerateJsonOptions): Promise<T>;
 
 	/* Generates text from a LLM */
 	generateText(userPrompt: string, systemPrompt?: string, opts?: GenerateTextOptions): Promise<string>;
@@ -96,6 +95,14 @@ export interface LLM {
 	generateFunctionResponse(prompt: string, systemPrompt?: string, opts?: GenerateFunctionOptions): Promise<FunctionResponse>;
 
 	/**
+	 * Streams text from the LLM
+	 * @param messages
+	 * @param onChunk streaming chunk callback
+	 * @param opts
+	 */
+	streamText(messages: LlmMessage[], onChunk: ({ string }) => void, opts?: GenerateTextOptions): Promise<StreamTextResult<any>>;
+
+	/**
 	 * The service provider of the LLM (OpenAI, Google, TogetherAI etc)
 	 */
 	getService(): string;
@@ -105,6 +112,7 @@ export interface LLM {
 	 */
 	getModel(): string;
 
+	/** UI display name */
 	getDisplayName(): string;
 
 	/**
@@ -127,6 +135,12 @@ export interface LLM {
 	 * @returns the number of tokens in the text for this LLM
 	 */
 	countTokens(text: string): Promise<number>;
+
+	/**
+	 * Checks if all necessary configuration variables are set for this LLM.
+	 * @returns true if the LLM is properly configured, false otherwise.
+	 */
+	isConfigured(): boolean;
 }
 
 /**
@@ -172,13 +186,14 @@ export function combinePrompts(userPrompt: string, systemPrompt?: string): strin
  * @returns
  */
 export function logTextGeneration(originalMethod: any, context: ClassMethodDecoratorContext): any {
-	return async function replacementMethod(this: BaseLLM, ...args: any[]) {
+	return async function replacementMethod(this: any, ...args: any[]) {
 		// system prompt
 		// if (args.length > 1 && args[1]) {
 		// 	logger.info(`= SYSTEM PROMPT ===================================================\n${args[1]}`);
 		// }
-		// logger.info(`= USER PROMPT =================================================================\n${args[0]}`);
-		//
+		console.log();
+		console.log(`= USER PROMPT =================================================================\n${args[0]}`);
+		console.log(args[0]);
 		// const start = Date.now();
 		const result = await originalMethod.call(this, ...args);
 		// logger.info(`= RESPONSE ${this.model} ==========================================================\n${JSON.stringify(result)}`);
@@ -190,7 +205,7 @@ export function logTextGeneration(originalMethod: any, context: ClassMethodDecor
 
 export function logDuration(originalMethod: any, context: ClassMethodDecoratorContext): any {
 	const functionName = String(context.name);
-	return async function replacementMethod(this: BaseLLM, ...args: any[]) {
+	return async function replacementMethod(this: any, ...args: any[]) {
 		const start = Date.now();
 		const result = await originalMethod.call(this, ...args);
 		console.log(`${functionName} took ${Date.now() - start}ms`);

@@ -1,17 +1,18 @@
-import { readFileSync } from 'fs';
 import { Type } from '@sinclair/typebox';
 import { LlmFunctions } from '#agent/LlmFunctions';
+import { AgentType } from '#agent/agentContextTypes';
+import { AgentExecution, startAgent } from '#agent/agentRunner';
 import { send } from '#fastify/index';
+import { functionFactory } from '#functionSchema/functionDecorators';
 import { getLLM } from '#llm/llmFactory';
 import { logger } from '#o11y/logger';
+import { currentUser } from '#user/userService/userContext';
 import { AppFastifyInstance } from '../../app';
 
-import { AgentExecution, startAgent } from '#agent/agentRunner';
-import { currentUser } from '#user/userService/userContext';
-
-import { functionFactory } from '#functionSchema/functionDecorators';
-
 const v1BasePath = '/api/agent/v1';
+
+const AGENT_TYPES: Array<AgentType> = ['xml', 'codegen'];
+
 export async function agentStartRoute(fastify: AppFastifyInstance) {
 	/** Starts a new agent */
 	fastify.post(
@@ -22,7 +23,7 @@ export async function agentStartRoute(fastify: AppFastifyInstance) {
 					name: Type.String(),
 					userPrompt: Type.String(),
 					functions: Type.Array(Type.String()),
-					type: Type.String({ enum: ['xml', 'python'] }),
+					type: Type.String({ enum: AGENT_TYPES }),
 					budget: Type.Number({ minimum: 0 }),
 					count: Type.Integer({ minimum: 0 }),
 					llmEasy: Type.String(),
@@ -51,7 +52,7 @@ export async function agentStartRoute(fastify: AppFastifyInstance) {
 				user: currentUser(),
 				agentName: name,
 				initialPrompt: userPrompt,
-				type: type as 'xml' | 'python',
+				type: type as AgentType,
 				humanInLoop: { budget, count },
 				llms: {
 					easy: getLLM(llmEasy),
